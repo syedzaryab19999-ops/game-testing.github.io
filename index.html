@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commando vs The Old Guy: Ambush</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #111;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Arial Black', sans-serif;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            border: 4px solid #444;
+            box-shadow: 0 0 50px rgba(0,0,0,0.9);
+        }
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #64b5f6, #b3e5fc);
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 20px;
+            text-transform: uppercase;
+            pointer-events: none;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 10;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff3333;
+            font-size: 70px;
+            font-weight: 900;
+            text-shadow: 4px 4px 0px black;
+            display: none;
+            text-align: center;
+            white-space: nowrap;
+            z-index: 20;
+        }
+        .restart-btn {
+            display: block;
+            font-size: 24px;
+            margin-top: 20px;
+            background: #ff3333;
+            color: white;
+            border: 3px solid white;
+            padding: 15px 40px;
+            cursor: pointer;
+            margin-left: auto;
+            margin-right: auto;
+            font-family: 'Arial Black', sans-serif;
+            pointer-events: auto;
+            text-transform: uppercase;
+        }
+        .restart-btn:hover {
+            background: #d32f2f;
+            transform: scale(1.05);
+        }
+    </style>
+</head>
+<body>
+
+<div id="gameContainer">
+    <div id="ui">
+        <div>OBJECTIVE: JUMP over the bushes!</div>
+        <div style="font-size: 14px; color: #eee; margin-top: 5px;">Controls: Arrows/WASD to Move & Jump</div>
+    </div>
+    <div id="message">
+        TAPA TAP Complete!
+        <button class="restart-btn" onclick="location.reload()">TRY AGAIN</button>
+    </div>
+    <canvas id="gameCanvas" width="900" height="500"></canvas>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const msgDiv = document.getElementById('message');
+
+    // --- CONFIGURATION ---
+    // Moved ground up to accommodate larger sprites
+    const GROUND_Y = 320; 
+    const GRAVITY = 0.8;
+    const JUMP_FORCE = -16;
+    const SPEED = 6;
+    const LEVEL_LENGTH = 4000;
+    const OLD_GUY_MAX_HEIGHT = 130; 
+
+    // --- IMAGES ---
+    const playerHeadImg = new Image();
+    playerHeadImg.src = "https://i.ibb.co/5gj9Cpqr/Whats-App-Image-2025-11-23-at-3-10-43-PM-removebg-preview.png";
+
+    const oldGuyHeadImg = new Image();
+    oldGuyHeadImg.src = "https://i.ibb.co/DP2H9Mk4/telegram-sticker-necktie-brazzers-johnny-sins-98284a227600e2bc40a006ea06234e0c.png";
+
+    let imagesLoaded = 0;
+    function onImageLoad() {
+        imagesLoaded++;
+        if (imagesLoaded === 2) {
+            gameLoop();
+        }
+    }
+    playerHeadImg.onload = onImageLoad;
+    oldGuyHeadImg.onload = onImageLoad;
+
+    // --- STATE ---
+    let gameState = 'PLAYING'; // PLAYING, GRABBING, FIGHTING, GAMEOVER, WIN
+    let cameraX = 0;
+    let frameCount = 0;
+
+    // --- INPUT ---
+    const keys = { right: false, left: false, jump: false };
+
+    // --- PLAYER ---
+    const player = {
+        x: 50,
+        y: GROUND_Y,
+        width: 70,
+        height: 120,
+        vx: 0,
+        vy: 0,
+        facingRight: true,
+        visible: true,
+        frame: 0
+    };
+
+    // --- THE OLD GUY (TRAP) ---
+    let oldGuy = {
+        active: false,
+        x: 0,
+        y: 0,
+        height: 0,
+        armExtension: 0,
+        state: 'HIDDEN'
+    };
+
+    // --- LEVEL GENERATION ---
+    const bushes = [];
+    for (let i = 600; i < LEVEL_LENGTH - 400; i += 400 + Math.random() * 300) {
+        bushes.push({
+            x: i,
+            y: GROUND_Y,
+            width: 100, 
+            height: 60,
+            triggered: false
+        });
+    }
+
+    // --- INPUT HANDLERS ---
+    window.addEventListener('keydown', (e) => {
+        if (gameState !== 'PLAYING') return;
+        if (e.code === 'ArrowRight' || e.key === 'd') keys.right = true;
+        if (e.code === 'ArrowLeft' || e.key === 'a') keys.left = true;
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.key === 'w') keys.jump = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (e.code === 'ArrowRight' || e.key === 'd') keys.right = false;
+        if (e.code === 'ArrowLeft' || e.key === 'a') keys.left = false;
+        if (e.code === 'Space' || e.code === 'ArrowUp' || e.key === 'w') keys.jump = false;
+    });
+
+    // --- UPDATE LOOP ---
+    function update() {
+        frameCount++;
+
+        if (gameState === 'PLAYING') {
+            if (keys.right) { player.vx = SPEED; player.facingRight = true; player.frame++; }
+            else if (keys.left) { player.vx = -SPEED; player.facingRight = false; player.frame++; }
+            else { player.vx = 0; }
+
+            if (keys.jump && player.y === GROUND_Y) {
+                player.vy = JUMP_FORCE;
+            }
+
+            player.vy += GRAVITY;
+            player.x += player.vx;
+            player.y += player.vy;
+
+            if (player.y > GROUND_Y) {
+                player.y = GROUND_Y;
+                player.vy = 0;
+            }
+
+            if (player.x < 0) player.x = 0;
+            if (player.x > LEVEL_LENGTH) {
+                gameState = 'WIN';
+                msgDiv.innerHTML = "MISSION COMPLETE!<br><button class='restart-btn' onclick='location.reload()'>NEXT MISSION</button>";
+                msgDiv.style.display = 'block';
+                msgDiv.style.color = '#4CAF50';
+            }
+
+            cameraX = player.x - 200;
+            if (cameraX < 0) cameraX = 0;
+            if (cameraX > LEVEL_LENGTH - canvas.width + 200) cameraX = LEVEL_LENGTH - canvas.width + 200;
+
+            bushes.forEach(bush => {
+                // Trap trigger zone
+                if (player.x + player.width > bush.x + 20 && 
+                    player.x < bush.x + bush.width - 20 &&
+                    player.y >= GROUND_Y - 5) {
+                    
+                    triggerAmbush(bush);
+                }
+            });
+
+        } else if (gameState === 'GRABBING') {
+            if (oldGuy.state === 'RISING') {
+                oldGuy.height += 6; 
+                if (oldGuy.height >= OLD_GUY_MAX_HEIGHT) {
+                    oldGuy.height = OLD_GUY_MAX_HEIGHT;
+                    oldGuy.state = 'GRABBING';
+                }
+            } 
+            else if (oldGuy.state === 'GRABBING') {
+                const targetX = player.x + player.width/2;
+                const originX = oldGuy.x + 50; 
+                const dist = Math.abs(targetX - originX);
+                
+                oldGuy.armExtension += 8; 
+                if (oldGuy.armExtension >= dist - 20) {
+                    oldGuy.state = 'PULLING';
+                }
+            }
+            else if (oldGuy.state === 'PULLING') {
+                const centerBush = oldGuy.x + 50 - player.width/2;
+                player.x += (centerBush - player.x) * 0.2; 
+                oldGuy.armExtension *= 0.7;
+
+                if (Math.abs(player.x - centerBush) < 5) {
+                    gameState = 'FIGHTING';
+                    player.visible = false;
+                    setTimeout(() => {
+                        gameState = 'GAMEOVER';
+                        msgDiv.style.display = 'block';
+                    }, 2000);
+                }
+            }
+        }
+    }
+
+    function triggerAmbush(bush) {
+        gameState = 'GRABBING';
+        oldGuy.active = true;
+        oldGuy.x = bush.x;
+        oldGuy.y = bush.y + 80; // Adjusted for new ground height
+        oldGuy.state = 'RISING';
+        bush.triggered = true;
+    }
+
+    // --- DRAWING ---
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        ctx.save();
+        ctx.translate(-cameraX, 0);
+
+        // Background
+        ctx.fillStyle = '#37474f';
+        ctx.beginPath();
+        ctx.moveTo(cameraX * 0.8, 450);
+        ctx.lineTo(cameraX * 0.8 + 300, 100);
+        ctx.lineTo(cameraX * 0.8 + 600, 450);
+        ctx.fill();
+
+        // Dynamically draw ground based on player height logic
+        const visualGroundY = GROUND_Y + player.height;
+
+        ctx.fillStyle = '#4e342e';
+        ctx.fillRect(0, visualGroundY, LEVEL_LENGTH + 1000, 500); // Extended down
+        ctx.fillStyle = '#2e7d32';
+        ctx.fillRect(0, visualGroundY, LEVEL_LENGTH + 1000, 20);
+
+        // Goal
+        ctx.fillStyle = '#d32f2f';
+        ctx.fillRect(LEVEL_LENGTH, GROUND_Y - 100, 10, 170);
+        ctx.font = '30px Arial Black';
+        ctx.fillText("GOAL", LEVEL_LENGTH - 40, GROUND_Y - 120);
+
+        // Draw Objects
+        bushes.forEach(bush => {
+            const bx = bush.x;
+            const by = bush.y + player.height;
+
+            if (oldGuy.active && oldGuy.x === bush.x && gameState !== 'FIGHTING') {
+                drawOldGuy(bx, by);
+            }
+
+            // Bush Back
+            ctx.fillStyle = '#1b5e20';
+            ctx.beginPath();
+            ctx.arc(bx + 25, by, 35, Math.PI, 0);
+            ctx.arc(bx + 75, by, 40, Math.PI, 0);
+            ctx.fill();
+
+            if (gameState === 'FIGHTING' && oldGuy.x === bush.x) {
+                drawFightCloud(bx + 50, by - 30);
+            }
+        });
+
+        if (player.visible) {
+            drawPlayer();
+        }
+
+        // Bush Front (Foreground)
+        bushes.forEach(bush => {
+            const bx = bush.x;
+            const by = bush.y + player.height;
+            ctx.fillStyle = '#2e7d32';
+            ctx.beginPath();
+            ctx.arc(bx + 50, by + 10, 35, Math.PI, 0);
+            ctx.fill();
+        });
+
+        ctx.restore();
+    }
+
+    function drawOldGuy(bx, by) {
+        const gx = bx + 50; // Center X
+        const gy = by - oldGuy.height + 20; // Y Top of head roughly
+
+        // --- OLD GUY BODY (GIANT) ---
+        
+        // Torso
+        ctx.fillStyle = '#dda868'; // Skin
+        // Main chest/abs block
+        ctx.fillRect(gx - 35, gy, 70, 100); 
+
+        // Muscle Definition (Pectorals)
+        ctx.fillStyle = '#cd9658';
+        ctx.fillRect(gx - 35, gy + 10, 34, 25); // Left Pec
+        ctx.fillRect(gx + 1, gy + 10, 34, 25);  // Right Pec
+        
+        // Abs (Six pack)
+        ctx.fillRect(gx - 15, gy + 40, 12, 10);
+        ctx.fillRect(gx + 3, gy + 40, 12, 10);
+        ctx.fillRect(gx - 15, gy + 52, 12, 10);
+        ctx.fillRect(gx + 3, gy + 52, 12, 10);
+
+        // Head (IMAGE)
+        const headSize = 80;
+        ctx.drawImage(oldGuyHeadImg, gx - headSize/2, gy - headSize + 10, headSize, headSize);
+
+        // Arms (Massive)
+        ctx.strokeStyle = '#dda868';
+        ctx.lineWidth = 18; // Very thick arms
+        ctx.lineCap = 'round';
+
+        const armOriginY = gy + 15;
+        const armOriginX_L = gx - 35;
+        const armOriginX_R = gx + 35;
+
+        let targetX = player.x + player.width/2;
+        let dir = (targetX > gx) ? 1 : -1;
+        
+        if (oldGuy.state === 'RISING') {
+            // Flexing/Rising pose
+            ctx.beginPath(); ctx.moveTo(armOriginX_L, armOriginY); ctx.lineTo(armOriginX_L - 30, armOriginY - 40); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(armOriginX_R, armOriginY); ctx.lineTo(armOriginX_R + 30, armOriginY - 40); ctx.stroke();
+        } else {
+            const ext = oldGuy.armExtension;
+            
+            // Draw arms
+            ctx.beginPath(); ctx.moveTo(armOriginX_L, armOriginY); ctx.lineTo(gx + (ext * dir), armOriginY + 10); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(armOriginX_R, armOriginY); ctx.lineTo(gx + (ext * dir), armOriginY + 10); ctx.stroke();
+
+            // Hands (Big fists)
+            ctx.fillStyle = '#dda868';
+            if (oldGuy.state === 'GRABBING' || oldGuy.state === 'PULLING') {
+                ctx.beginPath(); ctx.arc(gx + (ext * dir), armOriginY + 10, 15, 0, Math.PI*2); ctx.fill();
+            }
+        }
+    }
+
+    function drawPlayer() {
+        const px = player.x;
+        const py = player.y;
+        const dir = player.facingRight ? 1 : -1;
+        
+        ctx.save();
+        ctx.translate(px + player.width/2, py + player.height/2);
+        
+        if (gameState === 'PULLING') {
+            ctx.rotate((Math.random() - 0.5) * 0.5); 
+            const oldGuyDir = (oldGuy.x > player.x) ? 1 : -1;
+            ctx.scale(oldGuyDir, 1); 
+        } else {
+            ctx.scale(dir, 1);
+        }
+
+        const walk = (Math.abs(player.vx) > 0) ? Math.sin(frameCount * 0.5) * 15 : 0;
+        
+        // --- DETAILED COMMANDO (SCALED UP) ---
+
+        // Boots (Black)
+        ctx.fillStyle = '#111';
+        ctx.fillRect(-20 + walk, 45, 20, 15); 
+        ctx.fillRect(5 - walk, 45, 20, 15);
+
+        // Pants (Camo Green)
+        ctx.fillStyle = '#4b5320'; 
+        ctx.fillRect(-20 + walk, 20, 18, 25); 
+        ctx.fillRect(5 - walk, 20, 18, 25);
+
+        // Belt
+        ctx.fillStyle = '#222';
+        ctx.fillRect(-25, 15, 50, 6);
+        ctx.fillStyle = '#ffd700'; // Gold buckle
+        ctx.fillRect(-3, 15, 6, 6);
+
+        // Torso (Vest)
+        ctx.fillStyle = '#546e7a'; // Grey/Blue tactical vest
+        ctx.fillRect(-25, -35, 50, 50);
+        
+        // Vest Details (Pouches)
+        ctx.fillStyle = '#37474f';
+        ctx.fillRect(-20, -20, 14, 16);
+        ctx.fillRect(6, -20, 14, 16);
+
+        // Backpack (Brown)
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(-35, -32, 12, 40);
+
+        // Arms (Muscular)
+        ctx.fillStyle = '#ffdfbe'; // Skin
+        if (gameState === 'PULLING') {
+            ctx.fillRect(-25, -60, 14, 40);
+            ctx.fillRect(12, -60, 14, 40);
+        } else {
+            ctx.fillRect(-8, -25, 40, 16);
+        }
+
+        // Head (IMAGE)
+        const headSize = 80;
+        // Adjust position to sit on neck
+        ctx.drawImage(playerHeadImg, -headSize/2 - 2, -headSize - 32, headSize, headSize);
+
+        // Heavy Machine Gun
+        if (gameState !== 'PULLING') {
+            ctx.fillStyle = '#212121'; 
+            ctx.fillRect(15, -14, 60, 16); // Main Barrel
+            ctx.fillStyle = '#111';
+            ctx.fillRect(15, -20, 16, 6); // Sight
+            ctx.fillRect(75, -16, 8, 20); // Muzzle tip
+            
+            // Magazine (Curved look)
+            ctx.fillStyle = '#424242';
+            ctx.beginPath();
+            ctx.moveTo(40, -4);
+            ctx.quadraticCurveTo(32, 16, 48, 16);
+            ctx.lineTo(56, -4);
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+
+    function drawFightCloud(x, y) {
+        ctx.fillStyle = '#fff';
+        ctx.strokeStyle = '#ccc';
+        
+        for(let i=0; i<8; i++) {
+            const rx = x + (Math.random() - 0.5) * 80;
+            const ry = y + (Math.random() - 0.5) * 80;
+            const r = 20 + Math.random() * 25;
+            ctx.beginPath();
+            ctx.arc(rx, ry, r, 0, Math.PI*2);
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        ctx.fillStyle = '#ff0000';
+        ctx.font = '40px Arial Black';
+        ctx.fillText("TAPA TAP Complete!", x - 50, y);
+    }
+
+    function gameLoop() {
+        update();
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+    
+    // gameLoop() is called after images load
+
+</script>
+
+</body>
+</html>
