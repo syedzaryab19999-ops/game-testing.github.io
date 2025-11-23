@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Commando vs The Old Guy: Ambush</title>
     <style>
         body {
@@ -15,15 +15,20 @@
             height: 100vh;
             font-family: 'Arial Black', sans-serif;
             overflow: hidden;
+            touch-action: none; /* Prevent browser gestures */
         }
         #gameContainer {
             position: relative;
             border: 4px solid #444;
             box-shadow: 0 0 50px rgba(0,0,0,0.9);
+            width: 100%;
+            max-width: 900px;
         }
         canvas {
             display: block;
             background: linear-gradient(to bottom, #64b5f6, #b3e5fc);
+            width: 100%;
+            height: auto;
         }
         #ui {
             position: absolute;
@@ -36,6 +41,51 @@
             text-shadow: 2px 2px 0 #000;
             z-index: 10;
         }
+        /* Mobile Controls Styling */
+        #touchControls {
+            position: absolute;
+            bottom: 20px;
+            left: 0;
+            width: 100%;
+            height: 120px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            padding: 0 20px;
+            box-sizing: border-box;
+            z-index: 30;
+            pointer-events: none; /* Allow touches to pass through empty space */
+        }
+        .control-group {
+            display: flex;
+            gap: 20px;
+            pointer-events: none;
+        }
+        .touch-btn {
+            width: 70px;
+            height: 70px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 30px;
+            pointer-events: auto; /* Capture touch */
+            user-select: none;
+            -webkit-user-select: none;
+            backdrop-filter: blur(2px);
+        }
+        .touch-btn:active {
+            background: rgba(255, 255, 255, 0.5);
+            transform: scale(0.95);
+        }
+        /* Hide touch controls on devices with fine pointers (mouse) */
+        @media (pointer: fine) {
+            #touchControls { display: none; }
+        }
+
         #message {
             position: absolute;
             top: 50%;
@@ -64,6 +114,7 @@
             font-family: 'Arial Black', sans-serif;
             pointer-events: auto;
             text-transform: uppercase;
+            touch-action: manipulation;
         }
         .restart-btn:hover {
             background: #d32f2f;
@@ -76,10 +127,22 @@
 <div id="gameContainer">
     <div id="ui">
         <div>OBJECTIVE: JUMP over the bushes!</div>
-        <div style="font-size: 14px; color: #eee; margin-top: 5px;">Controls: Arrows/WASD to Move & Jump</div>
+        <div style="font-size: 14px; color: #eee; margin-top: 5px;">Controls: Arrows/WASD or Touch</div>
     </div>
+    
+    <!-- Touch Controls Overlay -->
+    <div id="touchControls">
+        <div class="control-group">
+            <div id="btnLeft" class="touch-btn">◀</div>
+            <div id="btnRight" class="touch-btn">▶</div>
+        </div>
+        <div class="control-group">
+            <div id="btnJump" class="touch-btn" style="background: rgba(255, 200, 200, 0.2);">▲</div>
+        </div>
+    </div>
+
     <div id="message">
-        TAPA TAP Complete!
+        CRUSHED!
         <button class="restart-btn" onclick="location.reload()">TRY AGAIN</button>
     </div>
     <canvas id="gameCanvas" width="900" height="500"></canvas>
@@ -172,6 +235,30 @@
         if (e.code === 'ArrowLeft' || e.key === 'a') keys.left = false;
         if (e.code === 'Space' || e.code === 'ArrowUp' || e.key === 'w') keys.jump = false;
     });
+
+    // --- MOBILE TOUCH HANDLERS ---
+    const setupTouchButton = (id, keyName) => {
+        const btn = document.getElementById(id);
+        
+        btn.addEventListener('touchstart', (e) => {
+            e.preventDefault(); // Prevent scrolling
+            if (gameState === 'PLAYING') keys[keyName] = true;
+        }, { passive: false });
+
+        btn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            keys[keyName] = false;
+        }, { passive: false });
+        
+        // Handle touch cancel/leave cases
+        btn.addEventListener('touchcancel', (e) => {
+            keys[keyName] = false;
+        });
+    };
+
+    setupTouchButton('btnLeft', 'left');
+    setupTouchButton('btnRight', 'right');
+    setupTouchButton('btnJump', 'jump');
 
     // --- UPDATE LOOP ---
     function update() {
@@ -484,7 +571,7 @@
 
         ctx.fillStyle = '#ff0000';
         ctx.font = '40px Arial Black';
-        ctx.fillText("TAPA TAP Complete!", x - 50, y);
+        ctx.fillText("CRUSH!", x - 50, y);
     }
 
     function gameLoop() {
